@@ -2,7 +2,8 @@
 // usage: GuitarCozy [--screen menu|songs|career|options] [--song <name-substring>] [--bot] [--difficulty expert]
 //                   [--instrument guitar] [--practice start,end,speed] [--screenshot out.png --seconds N]
 //                   [--pause-at N] [--actions down,confirm,...] [--keys 6:53[:hold],...]  (seconds:keycode synthetic presses)
-//                   [--song-folder <path>]  load a song folder directly without touching the library
+//                   [--song-folder <path>]  load a song folder or .sng directly without touching the library
+//                   [--rate N]  play N times faster (testing; nothing is saved)
 #import <Cocoa/Cocoa.h>
 #include <string>
 #import "App.h"
@@ -15,7 +16,7 @@ int main(int argc, const char** argv) {
   @autoreleasepool {
     std::string screen = "menu", song, difficulty = "expert", instrument = "guitar", shot, practice, actions, keys, songFolder;
     bool bot = false;
-    double seconds = 0, pauseAt = 0, delegateActionsAt = 0;
+    double seconds = 0, pauseAt = 0, delegateActionsAt = 0, rate = 0;
     for (int i = 1; i < argc; i++) {
       std::string a = argv[i];
       auto next = [&]() { return i + 1 < argc ? std::string(argv[++i]) : std::string(); };
@@ -31,6 +32,7 @@ int main(int argc, const char** argv) {
       else if (a == "--actions") actions = next();
       else if (a == "--keys") keys = next();
       else if (a == "--actions-at") delegateActionsAt = atof(next().c_str());
+      else if (a == "--rate") rate = atof(next().c_str());
       else if (a == "--song-folder") songFolder = next();
     }
     NSApplication* app = [NSApplication sharedApplication];
@@ -43,6 +45,7 @@ int main(int argc, const char** argv) {
     delegate.debugPauseAt = pauseAt;
     if (!actions.empty()) delegate.debugActions = [@(actions.c_str()) componentsSeparatedByString:@","];
     delegate.debugActionsAt = delegateActionsAt;
+    delegate.debugRate = rate > 0 ? rate : (getenv("GC_RATE") ? atof(getenv("GC_RATE")) : 0);
     if (!keys.empty()) delegate.debugKeys = [@(keys.c_str()) componentsSeparatedByString:@","];
     app.delegate = delegate;
     // route the initial screen once the app has launched

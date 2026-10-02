@@ -214,7 +214,7 @@ void Library::removeFolder(const std::string& folder) {
 
 std::string Library::addTemporarySong(const std::string& folder) {
   SongEntry e;
-  if (!scanSongDir(folder, false, e)) return "";
+  if (isSngPath(folder) ? !scanSngFile(folder, e) : !scanSongDir(folder, false, e)) return "";
   entries_.erase(std::remove_if(entries_.begin(), entries_.end(), [&](const SongEntry& x) { return x.id == e.id; }), entries_.end());
   entries_.push_back(e);
   return e.id;

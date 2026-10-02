@@ -443,15 +443,15 @@ void GameEngine::reset(double startTime, double endTime) {
   stats_ = fresh;
 }
 
-int starRating(double score, double maxBase, bool fullCombo) {
-  if (maxBase <= 0) return 0;
-  const double ratio = score / maxBase;
+int starRating(double score, double maxBase, bool fullCombo, double accuracy) {
   if (fullCombo) return 6;
-  if (ratio >= 4.4) return 5;
-  if (ratio >= 3.6) return 4;
-  if (ratio >= 2.8) return 3;
-  if (ratio >= 2.0) return 2;
-  if (ratio >= 1.0) return 1;
+  const double ratio = maxBase > 0 ? score / maxBase : 0;
+  const double acc = accuracy >= 0 ? accuracy : 0;
+  if (ratio >= 4.4 || (acc >= 0.98 && ratio >= 4.0)) return 5;
+  if (ratio >= 3.6 || (acc >= 0.95 && ratio >= 3.0)) return 4;
+  if (ratio >= 2.8 || acc >= 0.85) return 3;
+  if (ratio >= 2.0 || acc >= 0.70) return 2;
+  if (ratio >= 1.0 || acc >= 0.50) return 1;
   return 0;
 }
 

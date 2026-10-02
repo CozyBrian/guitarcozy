@@ -43,7 +43,7 @@ static NSString* diffLabel(Difficulty d) { switch (d) { case Difficulty::Easy: r
   _setHead = [[GCElement alloc] initWithFrame:NSZeroRect]; _setHead.left = 620; _setHead.right = 48; _setHead.top = 454; _setHead.height = 16; [stage addSubview:_setHead];
   _setlist = [[GCElement alloc] initWithFrame:NSZeroRect]; _setlist.left = 620; _setlist.right = 48; _setlist.top = 490; _setlist.bottom = 160; [stage addSubview:_setlist];
   _play = GCSlab(@"Play", @"Enter ↗", ^{ [weakSelf play]; }); _play.left = 620; _play.right = 48; _play.bottom = 90; _play.height = 56; ((GCLabel*)_play.subviews.firstObject).fontSize = 28; ((GCLabel*)_play.subviews.firstObject).top = 11; ((GCLabel*)_play.subviews.firstObject).left = 24; [stage addSubview:_play];
-  GCFooter(stage, @[@[@"↑ ↓", @"Song"], @[@"← →", @"Tier"], @[@"Enter", @"Play", @"g"], @[@"Esc", @"Back", @"r"]]);
+  GCFooter(stage, @[@[@"↑ ↓", @"Song"], @[@"← →", @"Tier"], @[@"Tab", @"Difficulty"], @[@"Enter", @"Play", @"g"], @[@"Esc", @"Back", @"r"]]);
   [self reload];
 }
 - (void)cycleDifficulty {
@@ -150,6 +150,7 @@ static NSString* diffLabel(Difficulty d) { switch (d) { case Difficulty::Easy: r
   else if ([action isEqualToString:@"down"]) _songIdx = (_songIdx + 1) % n;
   else if ([action isEqualToString:@"left"]) { _tierIdx = std::max(0, _tierIdx - 1); _songIdx = 0; }
   else if ([action isEqualToString:@"right"]) { _tierIdx = std::min((int)_tiers.size() - 1, _tierIdx + 1); _songIdx = 0; }
+  else if ([action isEqualToString:@"tab"] || [action isEqualToString:@"backtab"]) { [self cycleDifficulty]; return; }
   else if ([action isEqualToString:@"confirm"]) { [self play]; return; }
   else if ([action isEqualToString:@"back"]) { [GCApp.shared showMainMenu]; return; }
   [self render];

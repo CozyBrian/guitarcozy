@@ -132,7 +132,10 @@ class GameEngine {
   double rangeEnd_ = 1e300;
 };
 
-// Star rating from score / maxBaseScore. 0..6 (6 = gold, full combo).
-int starRating(double score, double maxBase, bool fullCombo);
+// Star rating 0..6 (6 = gold, full combo), balancing the GH3 average-multiplier ladder with accuracy:
+//   1-3 stars: multiplier 1.0 / 2.0 / 2.8x, OR accuracy 50% / 70% / 85%  (hitting the notes gets you to 3)
+//   4 stars:   3.6x, or 95% accuracy with at least 3.0x
+//   5 stars:   4.4x, or 98% accuracy with at least 4.0x  (the top needs star power and streaks)
+int starRating(double score, double maxBase, bool fullCombo, double accuracy = -1);
 
 }  // namespace gc

@@ -21,6 +21,8 @@ struct SectionChoice { std::string name; double time, endTime; int notes; };
   GCElement* _list;
   GCLabel *_loopTitle, *_loopMeta, *_speedVal;
   NSMutableArray<GCButton*>* _speedChips;
+  int _zone;  // 0 sections, 1 speed, 2 loop
+  GCBox* _speedFocus;
   GCBox* _toggle;
   GCBox* _knob;
 }
@@ -63,7 +65,7 @@ struct SectionChoice { std::string name; double time, endTime; int notes; };
   [stage addSubview:head];
   GCBox* clip = [[GCBox alloc] initWithFrame:NSZeroRect]; clip.left = 48; clip.right = 584; clip.top = 300; clip.bottom = 176; clip.clips = YES; [stage addSubview:clip];
   _list = [[GCElement alloc] initWithFrame:NSZeroRect]; _list.left = 0; _list.right = 0; _list.top = 0; _list.height = 2000; [clip addSubview:_list];
-  GCLabel* hint = GCMakeLabel(@"↑ ↓ Set start     ·     ← → Set end\nMouse: click start, then Shift-click the final section.", 15, NO, 400, GC_MUTED); hint.left = 48; hint.bottom = 108; hint.width = 700; hint.wraps = YES; hint.lineHeight = 24; [stage addSubview:hint];
+  GCLabel* hint = GCMakeLabel(@"↑ ↓ Set start     ·     ← → Set end     ·     Tab Speed / Loop\nMouse: click start, then Shift-click the final section.", 15, NO, 400, GC_MUTED); hint.left = 48; hint.bottom = 108; hint.width = 700; hint.wraps = YES; hint.lineHeight = 24; [stage addSubview:hint];
   GCBox* card = [[GCBox alloc] initWithFrame:NSZeroRect]; card.right = 48; card.top = 252; card.width = 488; card.bottom = 162; card.fill = GCColor(GC_PANEL); card.border = GCColor(GC_RULE); [stage addSubview:card];
   GCLabel* yl = GCSmallLabel(@"Your loop"); yl.left = 32; yl.top = 32; [card addSubview:yl];
   _loopTitle = GCMakeLabel(@"", 42, YES, 700, GC_INK); _loopTitle.left = 32; _loopTitle.top = 60; _loopTitle.width = 424; _loopTitle.fitContent = NO; _loopTitle.height = 52; [card addSubview:_loopTitle];
@@ -71,6 +73,7 @@ struct SectionChoice { std::string name; double time, endTime; int notes; };
   GCLabel* pl = GCSmallLabel(@"Playback speed"); pl.left = 32; pl.top = 176; [card addSubview:pl];
   _speedVal = GCMakeLabel(@"100%", 44, YES, 700, GC_INK); _speedVal.right = 32; _speedVal.top = 152; [card addSubview:_speedVal];
   _speedChips = [NSMutableArray new];
+  _speedFocus = [[GCBox alloc] initWithFrame:NSZeroRect]; _speedFocus.left = 26; _speedFocus.top = 210; _speedFocus.width = 436; _speedFocus.height = 58; _speedFocus.borderWidth = 2; [card addSubview:_speedFocus];
   const double speeds[] = {0.5, 0.6, 0.7, 0.8, 0.9, 1.0};
   __weak PracticeSetupScreen* weakSelf = self;
   for (int i = 0; i < 6; i++) {
@@ -89,7 +92,7 @@ struct SectionChoice { std::string name; double time, endTime; int notes; };
   [card addSubview:tg];
   GCLabel* np = GCMakeLabel(@"No pressure. No fail.\nPractice scores don't affect personal bests.", 15, NO, 400, GC_MUTED); np.left = 32; np.top = 416; np.width = 424; np.wraps = YES; np.lineHeight = 23; [card addSubview:np];
   GCButton* go = GCSlab(@"Let's work on it", @"Enter ↗", ^{ [weakSelf start]; }); go.right = 48; go.bottom = 92; go.width = 488; [stage addSubview:go];
-  GCFooter(stage, GCDefaultHints());
+  GCFooter(stage, @[@[@"↑ ↓", @"Start"], @[@"← →", @"End / Adjust"], @[@"Tab", @"Section"], @[@"Enter", @"Go", @"g"], @[@"Esc", @"Back", @"r"]]);
   [self setSpeed:1];
   [self renderList];
 }
@@ -149,13 +152,25 @@ struct SectionChoice { std::string name; double time, endTime; int notes; };
   [GCApp.shared startSong:_songId instrument:_instrument difficulty:_difficulty mode:@"practice" practiceStart:a.time practiceEnd:b.endTime speed:_speed loop:_loop];
 }
 - (void)exit {}
+- (void)paintZone {
+  _speedFocus.border = _zone == 1 ? GCColor(GC_INK) : nil;
+  _toggle.border = _zone == 2 ? GCColor(GC_INK) : nil; _toggle.borderWidth = 2;
+  [GCApp.shared.stage relayout];
+}
 - (void)menuAction:(NSString*)action {
+  const bool left = [action isEqualToString:@"left"], right = [action isEqualToString:@"right"];
+  if ([action isEqualToString:@"tab"]) { _zone = (_zone + 1) % 3; [self paintZone]; return; }
+  if ([action isEqualToString:@"backtab"]) { _zone = (_zone + 2) % 3; [self paintZone]; return; }
   if ([action isEqualToString:@"up"]) { _from = std::max(0, _from - 1); if (_to < _from) _to = _from; }
   else if ([action isEqualToString:@"down"]) { _from = std::min((int)_sections.size() - 1, _from + 1); if (_to < _from) _to = _from; }
-  else if ([action isEqualToString:@"left"]) _to = std::max(_from, _to - 1);
-  else if ([action isEqualToString:@"right"]) _to = std::min((int)_sections.size() - 1, _to + 1);
-  else if ([action isEqualToString:@"confirm"]) { [self start]; return; }
-  else if ([action isEqualToString:@"back"]) { [GCApp.shared showSongSelect:@"practice"]; return; }
+  else if (left || right) {
+    const int dir = right ? 1 : -1;
+    if (_zone == 1) { const double speeds[] = {0.5, 0.6, 0.7, 0.8, 0.9, 1.0}; int i = 5; for (int k = 0; k < 6; k++) if (fabs(speeds[k] - _speed) < 0.01) i = k; [self setSpeed:speeds[(i + dir + 6) % 6]]; return; }
+    if (_zone == 2) { [self toggleLoop]; return; }
+    _to = right ? std::min((int)_sections.size() - 1, _to + 1) : std::max(_from, _to - 1);
+  }
+  else if ([action isEqualToString:@"confirm"]) { if (_zone == 2) { [self toggleLoop]; return; } [self start]; return; }
+  else if ([action isEqualToString:@"back"]) { if (_zone != 0) { _zone = 0; [self paintZone]; return; } [GCApp.shared showSongSelect:@"practice"]; return; }
   [self renderList];
 }
 @end

@@ -644,10 +644,22 @@ void Renderer::update(const FrameInput& in) {
   // flames
   auto* fl = static_cast<FlameInstance*>(flameBuf_[frame_].contents);
   uint32_t fc = 0;
+  static std::mt19937 emberRng(5);
+  std::uniform_real_distribution<float> er(0.f, 1.f);
   for (auto& f : flames_) {
     if (f.life <= 0) continue;
     f.life -= dt * 2.4f;
     if (f.life <= 0) continue;
+    if (f.life > 0.35f && er(emberRng) < dt * 18.f) {  // embers rising out of the tongue
+      for (auto& s : sparks_) {
+        if (s.life > 0) continue;
+        s.maxLife = s.life = 0.45f + er(emberRng) * 0.4f;
+        s.pos = f.pos + simd_make_float3((er(emberRng) - 0.5f) * 0.25f * f.scale, (0.6f + er(emberRng) * 0.9f) * f.scale, (er(emberRng) - 0.5f) * 0.2f);
+        s.vel = simd_make_float3((er(emberRng) - 0.5f) * 0.8f, 1.6f + er(emberRng) * 1.6f, (er(emberRng) - 0.5f) * 0.6f + 0.4f);
+        s.col = simd_make_float3(1.6f, 0.9f + er(emberRng) * 0.4f, 0.35f);
+        break;
+      }
+    }
     if (fc >= uint32_t(MAX_FLAMES)) break;
     fl[fc++] = {f.pos, f.scale, f.life, f.seed, f.flip, 0, f.color};
   }
@@ -815,7 +827,7 @@ void Renderer::draw(id<MTLCommandBuffer> cmd, id<MTLTexture> target) {
     [enc setDepthStencilState:depthTest_];
     [enc setVertexBuffer:flameBuf_[frame_] offset:0 atIndex:4];
     [enc setFragmentBuffer:flameBuf_[frame_] offset:0 atIndex:4];
-    [enc drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4 instanceCount:flameCount_];
+    [enc drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4 instanceCount:flameCount_ * 3];  // FLAME_SLICES
   }
   // sparks
   if (sparkCount_) {

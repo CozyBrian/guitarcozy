@@ -429,7 +429,7 @@ static const bool kRecordBot = getenv("GC_RECORD_BOT") != nullptr;  // debug: tr
   _rockFill.height = 182 * std::max(0.0, std::min(1.0, st.rockMeter));
   _rockFill.fill = GCColor(st.rockMeter < 0.3 ? GC_RED : GC_YELLOW);
   _rockState.text = st.failed ? @"FAILED" : st.rockMeter >= 0.8 ? @"ON FIRE" : st.rockMeter >= 0.5 ? @"STEADY" : st.rockMeter >= 0.3 ? @"SHAKY" : @"DANGER";
-  const int stars = starRating(st.score, _engine->maxBaseScore(), false);
+  const int stars = starRating(st.score, _engine->maxBaseScore(), false, st.notesTotal ? double(st.notesHit) / st.notesTotal : -1);
   for (int i = 0; i < 5; i++) _stars[i].color = GCColor(i < stars ? GC_YELLOW : GC_RULE);
   const double len = _song->chart.chartLength > 0 ? _song->chart.chartLength : 1;
   _progress.width = std::max<CGFloat>(0, std::min<CGFloat>(1, t / len)) * (_stage.stageSize.width - 96);
@@ -579,8 +579,8 @@ static const bool kRecordBot = getenv("GC_RECORD_BOT") != nullptr;  // debug: tr
   const bool failed = st.failed;
   const bool fc = !failed && st.notesMissed == 0 && st.overstrums == 0 && st.notesHit == st.notesTotal;
   const double maxBase = _engine->maxBaseScore();
-  const int stars = failed ? 0 : starRating(st.score, maxBase, fc);
   const double acc = st.notesTotal ? double(st.notesHit) / st.notesTotal : 1;
+  const int stars = failed ? 0 : starRating(st.score, maxBase, fc, acc);
   fprintf(stderr, "result: score=%d maxBase=%.0f ratio=%.3f hit=%d/%d missed=%d overstrums=%d fc=%d stars=%d spPhrases=%d/%d\n", st.score, maxBase, maxBase > 0 ? st.score / maxBase : 0.0, st.notesHit, st.notesTotal, st.notesMissed, st.overstrums, (int)fc, stars, st.spPhrasesHit, st.spPhrasesTotal);
   if (!failed && acc >= 0.95) audio::Sfx::instance().playCrowdCheer(1.f);
   BOOL newRecord = NO;

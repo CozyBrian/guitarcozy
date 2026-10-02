@@ -39,6 +39,7 @@
 @property(nonatomic) double debugPauseAt;   // seconds of song time after which gameplay auto-pauses (0 = off)
 @property(nonatomic, strong) NSArray<NSString*>* debugActions;
 @property(nonatomic) BOOL debugBot;
+@property(nonatomic) double debugRate;                    // --rate: song speed multiplier for fast playthroughs (0 = normal)
 @property(nonatomic) double debugActionsAt;  // wall seconds after launch to replay debugActions (0 = at screen entry)
 @property(nonatomic, strong) NSArray<NSString*>* debugKeys;   // "seconds:keycode" synthetic key presses routed like real ones                       // --bot: autoplay without persisting the setting
 @property(nonatomic, strong) NSString* padName;           // connected controller name, nil when none

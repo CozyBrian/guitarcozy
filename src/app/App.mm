@@ -37,6 +37,8 @@ double GCHostSeconds(void) {
     case 124: action = @"right"; break;
     case 36: case 76: case 49: action = @"confirm"; break;
     case 53: case 51: action = @"back"; break;
+    case 48: action = (ev.modifierFlags & NSEventModifierFlagShift) ? @"backtab" : @"tab"; break;  // Tab: next pane / section
+    case 44: action = @"search"; break;  // "/" focuses a search field where there is one
   }
   if (!action) {
     const auto& k = gc::settings().keys;
@@ -173,7 +175,7 @@ static GCApp* gApp;
   if (!s) return;
   if (self.gameView.hidden) {
     auto& sfx = gc::audio::Sfx::instance();
-    if ([action isEqualToString:@"up"] || [action isEqualToString:@"down"]) sfx.playMenuMove();
+    if ([action isEqualToString:@"up"] || [action isEqualToString:@"down"] || [action isEqualToString:@"tab"] || [action isEqualToString:@"backtab"]) sfx.playMenuMove();
     else if ([action isEqualToString:@"confirm"]) sfx.playMenuConfirm();
     else if ([action isEqualToString:@"back"]) sfx.playMenuBack();
   }
@@ -233,7 +235,7 @@ static GCApp* gApp;
 - (void)startSong:(NSString*)songId instrument:(NSString*)instrument difficulty:(NSString*)difficulty mode:(NSString*)mode practiceStart:(double)ps practiceEnd:(double)pe speed:(double)speed loop:(BOOL)loop {
   GameplayScreen* g = [[GameplayScreen alloc] initWithSongId:songId instrument:instrument difficulty:difficulty mode:mode];
   if ([mode isEqualToString:@"practice"]) [g setPracticeStart:ps end:pe speed:speed loop:loop];
-  else [g setSpeed:speed];
+  else [g setSpeed:self.debugRate > 0 ? self.debugRate : speed];
   [self showScreen:g];
 }
 

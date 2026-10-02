@@ -209,19 +209,28 @@ fragment float4 trail_fs(TrailOut in [[stage_in]], constant TrailInstance* inst 
 }
 
 // ------------------------------------------------------------ procedural flames (additive billboards)
-struct FlameOut { float4 pos [[position]]; float2 uv; uint iid; };
+struct FlameOut { float4 pos [[position]]; float2 uv; float3 world; float facing; uint iid; };
+
+constant uint FLAME_SLICES = 3;  // each flame is drawn as three billboards fanned around its axis
 
 vertex FlameOut flame_vs(uint vid [[vertex_id]], uint iid [[instance_id]], constant FlameInstance* inst [[buffer(4)]], constant FrameUniforms& u [[buffer(2)]]) {
   float2 uv = float2(vid & 1, vid >> 1);
-  FlameInstance f = inst[iid];
-  // billboard: right = camera right approximated by world x, up = world y tilted toward camera
-  float3 right = float3(1.0, 0.0, 0.0) * f.flip;
-  float3 up = normalize(float3(0.0, 1.0, 0.35));
-  float3 p = f.pos + right * (uv.x - 0.5) * f.scale * 1.0 + up * uv.y * f.scale * 2.1;
+  const uint fi = iid / FLAME_SLICES, slice = iid % FLAME_SLICES;
+  FlameInstance f = inst[fi];
+  const float yaw = float(slice) * (M_PI_F / float(FLAME_SLICES)) + f.seed * 0.37;
+  float3 right = float3(cos(yaw), 0.0, sin(yaw)) * f.flip;
+  // lean the tongue toward the camera a little and let it sway with the noise clock
+  const float sway = sin(u.time * 7.0 + f.seed) * 0.12;
+  float3 up = normalize(float3(sway, 1.0, 0.3));
+  const float flicker = 0.92 + 0.08 * sin(u.time * 23.0 + f.seed * 3.0);
+  const float w = f.scale * 1.1, h = f.scale * 2.3 * flicker;
+  float3 p = f.pos + right * (uv.x - 0.5) * w + up * uv.y * h;
   FlameOut o;
   o.pos = u.viewProj * float4(p, 1.0);
   o.uv = uv;
-  o.iid = iid;
+  o.world = p;
+  o.facing = abs(right.x);  // slices facing the camera carry more of the energy
+  o.iid = fi;
   return o;
 }
 
@@ -229,24 +238,30 @@ fragment float4 flame_fs(FlameOut in [[stage_in]], constant FlameInstance* inst 
   FlameInstance f = inst[in.iid];
   float2 uv = in.uv;
   float t = u.time * 2.4 + f.seed;
-  float n = fbm(float2(uv.x * 3.0 + f.seed, uv.y * 3.5 - t * 2.2));
-  float n2 = fbm(float2(uv.x * 6.0 - f.seed, uv.y * 7.0 - t * 3.1));
+  // the noise is sampled in world space so the three slices describe one volume rather than three pictures
+  float3 w = (in.world - f.pos) / max(f.scale, 0.05);
+  float n  = fbm(float2(w.x * 1.6 + w.z * 1.3 + f.seed, w.y * 1.5 - t * 2.2));
+  float n2 = fbm(float2(w.x * 3.1 - w.z * 2.4 - f.seed, w.y * 3.0 - t * 3.1));
+  float n3 = noise2(float2(w.x * 6.0 + w.z * 5.0, w.y * 7.0 - t * 5.0));
   float age = 1.0 - f.life;
   float height = 0.55 + 0.55 * smoothstep(0.0, 0.35, age) * (1.0 - 0.5 * smoothstep(0.5, 1.0, age));
-  float w = (0.34 * (1.0 - uv.y / height) + 0.03) * (1.0 - 0.25 * age);
-  float dx = (uv.x - 0.5) + (n - 0.5) * 0.45 * uv.y;
-  float shape = 1.0 - smoothstep(w * 0.5, w, abs(dx));
-  float tip = 1.0 - smoothstep(height * 0.55, height, uv.y + (n2 - 0.5) * 0.35);
+  float wdt = (0.34 * (1.0 - uv.y / height) + 0.03) * (1.0 - 0.25 * age);
+  float dx = (uv.x - 0.5) + (n - 0.5) * 0.5 * uv.y;
+  float shape = 1.0 - smoothstep(wdt * 0.45, wdt, abs(dx));
+  float tip = 1.0 - smoothstep(height * 0.5, height, uv.y + (n2 - 0.5) * 0.4);
   float base = smoothstep(0.0, 0.06, uv.y);
   float flame = shape * tip * base;
-  float heat = clamp(flame * (0.4 + 0.6 * n2), 0.0, 1.0);
-  float3 core = float3(1.0, 0.97, 0.85);
+  float heat = clamp(flame * (0.35 + 0.65 * n2) * (0.85 + 0.3 * n3), 0.0, 1.0);
+  float3 core = float3(1.0, 0.98, 0.9);
   float3 mid = mix(float3(1.0, 0.62, 0.12), f.color.rgb, 0.35);
   float3 outer = mix(float3(0.9, 0.22, 0.02), f.color.rgb, 0.45);
-  float3 col = mix(outer, mid, smoothstep(0.15, 0.55, heat));
-  col = mix(col, core, smoothstep(0.72, 1.0, heat) * (1.0 - uv.y * 0.9));
-  float alpha = heat * (1.0 - smoothstep(0.75, 1.0, age));
-  col *= 1.0 + 0.8 * smoothstep(0.5, 1.0, heat);  // HDR core feeds the bloom
+  float3 col = mix(outer, mid, smoothstep(0.12, 0.5, heat));
+  col = mix(col, core, smoothstep(0.65, 1.0, heat) * (1.0 - uv.y * 0.85));
+  // hot centre column: bright, slightly blue-white at the very base like a real burner
+  float column = smoothstep(0.22, 0.0, abs(uv.x - 0.5)) * smoothstep(0.35, 0.0, uv.y) * flame;
+  col += float3(0.6, 0.8, 1.0) * column * 0.8;
+  float alpha = heat * (1.0 - smoothstep(0.7, 1.0, age)) * (0.5 + 0.5 * in.facing);
+  col *= 1.0 + 1.1 * smoothstep(0.45, 1.0, heat);  // HDR core feeds the bloom
   return float4(col * alpha, alpha);
 }
 

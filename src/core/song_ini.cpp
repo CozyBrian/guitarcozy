@@ -27,7 +27,13 @@ SongMeta parseSongIni(const std::string& text) {
     if (line.empty() || line[0] == ';' || line[0] == '#' || line[0] == '[') continue;
     size_t eq = line.find('=');
     if (eq == std::string::npos) continue;
-    meta.raw[toLower(trim(line.substr(0, eq)))] = trim(line.substr(eq + 1));
+    // Clone Hero rich text (<color=#..>, <b>, <i>, <size=..>) is display markup; keep the plain text
+    std::string value = trim(line.substr(eq + 1)), clean;
+    for (size_t i = 0; i < value.size(); i++) {
+      if (value[i] == '<') { size_t end = value.find('>', i); if (end != std::string::npos) { i = end; continue; } }
+      clean += value[i];
+    }
+    meta.raw[toLower(trim(line.substr(0, eq)))] = trim(clean);
   }
   const auto& raw = meta.raw;
   if (!str(raw, "name").empty()) { meta.name = str(raw, "name"); meta.hasName = true; }

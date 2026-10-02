@@ -26,6 +26,11 @@ static NSString* diffLabel(Difficulty d) { switch (d) { case Difficulty::Easy: r
 @interface GCSearchField : NSTextField
 @end
 @implementation GCSearchField
+// Esc / Enter hand focus back to the stage so the arrow keys drive the list again
+- (BOOL)control:(NSControl*)c textView:(NSTextView*)tv doCommandBySelector:(SEL)sel {
+  if (sel == @selector(cancelOperation:) || sel == @selector(insertNewline:)) { [self.window makeFirstResponder:self.window.contentView]; return YES; }
+  return NO;
+}
 @end
 
 // Search box: lays out its NSTextField in design units.
@@ -64,6 +69,10 @@ static NSString* diffLabel(Difficulty d) { switch (d) { case Difficulty::Easy: r
   std::unique_ptr<audio::Mixer> _preview;
   int _previewToken;
   std::string _selectedId;  // tracked by id: library entries move when a background scan merges
+  int _zone;                // keyboard focus: 0 songs, 1 sort, 2 instrument, 3 difficulty, 4 speed, 5 no fail
+  GCButton* _sortBtn;
+  GCBox *_instFocus, *_diffBox, *_speedFocus;
+  GCButton* _noFailBtn;
 }
 - (instancetype)initWithMode:(NSString*)mode {
   if ((self = [super init])) {
@@ -95,6 +104,7 @@ static NSString* diffLabel(Difficulty d) { switch (d) { case Difficulty::Easy: r
   _search = [[GCSearchField alloc] initWithFrame:NSMakeRect(0, 0, 100, 24)];
   _search.bezeled = NO; _search.drawsBackground = NO; _search.textColor = GCColor(GC_INK); _search.focusRingType = NSFocusRingTypeNone;
   _search.target = self; _search.action = @selector(searchChanged:);
+  _search.delegate = (id)_search;
   [_search setContinuous:YES];
   [searchBox addSubview:_search];
   searchBox.field = _search;
@@ -104,6 +114,7 @@ static NSString* diffLabel(Difficulty d) { switch (d) { case Difficulty::Easy: r
   GCLabel* arrow = GCMakeLabel(@"↓", 16, NO, 400, GC_INK); arrow.right = 20; arrow.top = 18; [sort addSubview:arrow];
   sort.onClick = ^{ [weakSelf cycleSort]; };
   [stage addSubview:sort];
+  _sortBtn = sort;
   // table head
   GCElement* head = [[GCElement alloc] initWithFrame:NSZeroRect];
   head.left = 68; head.right = 604; head.top = 278; head.height = 16;
@@ -125,7 +136,7 @@ static NSString* diffLabel(Difficulty d) { switch (d) { case Difficulty::Easy: r
   _info = [[GCBox alloc] initWithFrame:NSZeroRect];
   _info.right = 48; _info.top = 196; _info.width = 488; _info.bottom = 130; _info.fill = GCColor(GC_PANEL); _info.border = GCColor(GC_RULE); _info.clips = YES;
   [stage addSubview:_info];
-  GCFooter(stage, GCDefaultHints());
+  GCFooter(stage, @[@[@"↑ ↓", @"Songs"], @[@"Tab", @"Section"], @[@"← →", @"Adjust"], @[@"/", @"Search"], @[@"Enter", @"Play", @"g"], @[@"Esc", @"Back", @"r"]]);
   Library::instance().onChanged = ^{ [weakSelf refresh]; };
   Library::instance().onScan = ^(ScanProgress) { [weakSelf renderStatus]; [GCApp.shared.stage relayout]; };
   _selected = 0;
@@ -216,19 +227,20 @@ static NSString* diffLabel(Difficulty d) { switch (d) { case Difficulty::Easy: r
   for (size_t i = 0; i < _filtered.size(); i++) {
     const SongEntry* e = _filtered[i];
     const bool sel = (NSInteger)i == _selected;
+    const bool hot = sel && _zone == 0;  // the yellow slab follows keyboard focus; elsewhere the pick stays marked in a quiet cell
     GCButton* row = [[GCButton alloc] initWithFrame:NSZeroRect];
     row.left = 0; row.right = 0; row.top = y; row.height = 68;
-    row.fill = sel ? GCColor(GC_YELLOW) : nil;
+    row.fill = sel ? GCColor(hot ? GC_YELLOW : GC_CELL) : nil;
     __weak SongSelectScreen* weakSelf = self;
     row.onClick = ^{ [weakSelf selectIndex:(NSInteger)i preview:YES]; };
     GCBox* rule = GCRule(); rule.left = 0; rule.right = 0; rule.bottom = 0; [row addSubview:rule];
-    GCLabel* n = GCMakeLabel([NSString stringWithFormat:@"%02zu", i + 1], 14, NO, 400, sel ? GC_BG : GC_MUTED); n.left = 20; n.top = 25; [row addSubview:n];
-    GCLabel* title = GCMakeLabel(@(e->meta.name.c_str()), 20, NO, sel ? 700 : 500, sel ? GC_BG : GC_INK); title.left = 76; title.top = 12; title.right = 270; title.fitContent = NO; title.height = 24; [row addSubview:title];
+    GCLabel* n = GCMakeLabel([NSString stringWithFormat:@"%02zu", i + 1], 14, NO, 400, hot ? GC_BG : GC_MUTED); n.left = 20; n.top = 25; [row addSubview:n];
+    GCLabel* title = GCMakeLabel(@(e->meta.name.c_str()), 20, NO, sel ? 700 : 500, hot ? GC_BG : GC_INK); title.left = 76; title.top = 12; title.right = 270; title.fitContent = NO; title.height = 24; [row addSubview:title];
     std::string artist = e->meta.artist + (e->meta.charter.empty() ? "" : "  ·  " + e->meta.charter);
-    GCLabel* sub = GCMakeLabel(@(artist.c_str()), 14, NO, 400, sel ? GC_ON_YELLOW_MUTED : GC_MUTED); sub.left = 76; sub.top = 40; sub.right = 270; sub.fitContent = NO; sub.height = 18; [row addSubview:sub];
+    GCLabel* sub = GCMakeLabel(@(artist.c_str()), 14, NO, 400, hot ? GC_ON_YELLOW_MUTED : GC_MUTED); sub.left = 76; sub.top = 40; sub.right = 270; sub.fitContent = NO; sub.height = 18; [row addSubview:sub];
     const ScoreRecord* sc = Library::instance().score(e->id, _instrument, _difficulty);
-    GCLabel* best = GCMakeLabel(sc ? starsText(sc->stars, sc->fullCombo) : @"—", 17, NO, 400, sel ? GC_BG : GC_YELLOW); best.right = 124; best.top = 23; best.width = 140; best.fitContent = NO; best.height = 22; [row addSubview:best];
-    GCLabel* len = GCMakeLabel(e->meta.songLength ? fmtLen(e->meta.songLength) : @"—", 16, NO, 400, sel ? GC_BG : GC_INK); len.right = 20; len.top = 24; len.width = 104; len.align = NSTextAlignmentRight; len.fitContent = NO; len.height = 20; [row addSubview:len];
+    GCLabel* best = GCMakeLabel(sc ? starsText(sc->stars, sc->fullCombo) : @"—", 17, NO, 400, hot ? GC_BG : GC_YELLOW); best.right = 124; best.top = 23; best.width = 140; best.fitContent = NO; best.height = 22; [row addSubview:best];
+    GCLabel* len = GCMakeLabel(e->meta.songLength ? fmtLen(e->meta.songLength) : @"—", 16, NO, 400, hot ? GC_BG : GC_INK); len.right = 20; len.top = 24; len.width = 104; len.align = NSTextAlignmentRight; len.fitContent = NO; len.height = 20; [row addSubview:len];
     [_list addSubview:row];
     y += 68;
   }
@@ -294,8 +306,9 @@ static NSString* diffLabel(Difficulty d) { switch (d) { case Difficulty::Easy: r
   if (l2.count) [metaLines addObject:[l2 componentsJoinedByString:@" · "]];
   if (!e->meta.charter.empty()) [metaLines addObject:[NSString stringWithFormat:@"Chart by %s", e->meta.charter.c_str()]];
   GCLabel* meta = GCMakeLabel([metaLines componentsJoinedByString:@"\n"], 14, NO, 400, GC_MUTED); meta.left = 228; meta.top = below + 30; meta.width = 228; meta.wraps = YES; meta.lineHeight = 22; [_info addSubview:meta];
-  // instrument chips
+  // instrument chips (a focus frame sits behind them for keyboard navigation)
   GCLabel* il = GCSmallLabel(@"Instrument"); il.tracking = 0.12; il.left = 32; il.top = 236; [_info addSubview:il];
+  _instFocus = [[GCBox alloc] initWithFrame:NSZeroRect]; _instFocus.left = 24; _instFocus.top = 252; _instFocus.width = 440; _instFocus.height = 60; _instFocus.border = _zone == 2 ? GCColor(GC_INK) : nil; _instFocus.borderWidth = 2; [_info addSubview:_instFocus];
   CGFloat x = 32;
   std::vector<Instrument> shown = _moreInstruments ? std::vector<Instrument>{Instrument::Guitar, Instrument::Bass, Instrument::Rhythm, Instrument::Keys, Instrument::Coop} : std::vector<Instrument>{Instrument::Guitar, Instrument::Bass};
   if (!_moreInstruments && _instrument != Instrument::Guitar && _instrument != Instrument::Bass) shown.push_back(_instrument);
@@ -326,7 +339,8 @@ static NSString* diffLabel(Difficulty d) { switch (d) { case Difficulty::Easy: r
     GCLabel* il2 = GCSmallLabel(@"Intensity"); il2.tracking = 0.12; il2.right = 32 + 6 * 12 + 10; il2.top = 330; [_info addSubview:il2];
     for (int i = 0; i < 6; i++) { GCBox* b = [[GCBox alloc] initWithFrame:NSZeroRect]; b.right = 32 + (5 - i) * 12; b.top = 331; b.width = 8; b.height = 12; b.fill = GCColor(i < lvl ? (lvl >= 5 ? GC_RED : lvl >= 3 ? GC_YELLOW : GC_GREEN) : GC_RULE); [_info addSubview:b]; }
   }
-  GCBox* seg = [[GCBox alloc] initWithFrame:NSZeroRect]; seg.left = 32; seg.top = 354; seg.width = 424; seg.height = 46; seg.border = GCColor(GC_BORDER); [_info addSubview:seg];
+  GCBox* seg = [[GCBox alloc] initWithFrame:NSZeroRect]; seg.left = 32; seg.top = 354; seg.width = 424; seg.height = 46; seg.border = GCColor(_zone == 3 ? GC_INK : GC_BORDER); seg.borderWidth = _zone == 3 ? 2 : 1; [_info addSubview:seg];
+  _diffBox = seg;
   x = 0;
   for (Difficulty d : {Difficulty::Easy, Difficulty::Medium, Difficulty::Hard, Difficulty::Expert}) {
     const bool has = e->available.empty() || e->find(_instrument, d) != nullptr;
@@ -342,6 +356,7 @@ static NSString* diffLabel(Difficulty d) { switch (d) { case Difficulty::Easy: r
   // quickplay modifiers: speed chips + no fail
   if (![_mode isEqualToString:@"practice"]) {
     GCLabel* sl = GCSmallLabel(@"Speed"); sl.tracking = 0.12; sl.left = 32; sl.top = 412; [_info addSubview:sl];
+    _speedFocus = [[GCBox alloc] initWithFrame:NSZeroRect]; _speedFocus.left = 26; _speedFocus.top = 428; _speedFocus.width = 298; _speedFocus.height = 44; _speedFocus.border = _zone == 4 ? GCColor(GC_INK) : nil; _speedFocus.borderWidth = 2; [_info addSubview:_speedFocus];
     x = 32;
     for (int pct : {70, 80, 90, 100}) {
       const bool sel = fabs(settings().quickplaySpeed * 100 - pct) < 0.5;
@@ -354,7 +369,8 @@ static NSString* diffLabel(Difficulty d) { switch (d) { case Difficulty::Easy: r
     }
     GCButton* nf = [[GCButton alloc] initWithFrame:NSZeroRect]; nf.right = 32; nf.top = 434; nf.width = 110; nf.height = 32;
     const bool noFail = settings().noFail;
-    nf.fill = noFail ? GCColor(GC_YELLOW) : nil; nf.border = noFail ? nil : GCColor(GC_BORDER);
+    nf.fill = noFail ? GCColor(GC_YELLOW) : nil; nf.border = _zone == 5 ? GCColor(GC_INK) : (noFail ? nil : GCColor(GC_BORDER)); nf.borderWidth = _zone == 5 ? 2 : 1;
+    _noFailBtn = nf;
     GCLabel* nl = GCMakeLabel(noFail ? @"No fail: on" : @"No fail: off", 14, NO, noFail ? 700 : 400, noFail ? GC_BG : GC_INK); nl.left = 0; nl.right = 0; nl.top = 7; nl.align = NSTextAlignmentCenter; nl.fitContent = NO; nl.height = 18; [nf addSubview:nl];
     nf.onClick = ^{ settings().noFail = !settings().noFail; saveSettings(); [weakSelf renderInfo:NO]; [GCApp.shared.stage relayout]; };
     [_info addSubview:nf];
@@ -440,15 +456,59 @@ static NSString* diffLabel(Difficulty d) { switch (d) { case Difficulty::Easy: r
   [app startSong:id instrument:@(instrumentName(_instrument)) difficulty:@(difficultyName(_difficulty)) mode:@"quickplay" practiceStart:0 practiceEnd:0 speed:settings().quickplaySpeed loop:NO];
 }
 
+- (void)setZone:(int)z {
+  _zone = z;
+  _sortBtn.border = GCColor(_zone == 1 ? GC_INK : GC_RULE); _sortBtn.borderWidth = _zone == 1 ? 2 : 1;
+  [self renderList];
+  [self renderInfo:NO];
+  [_stage relayout];
+}
 - (void)menuAction:(NSString*)action {
   if (_search.currentEditor) return;
-  if ([action isEqualToString:@"up"]) { if (!_filtered.empty()) [self selectIndex:(_selected - 1 + (NSInteger)_filtered.size()) % (NSInteger)_filtered.size() preview:YES]; }
-  else if ([action isEqualToString:@"down"]) { if (!_filtered.empty()) [self selectIndex:(_selected + 1) % (NSInteger)_filtered.size() preview:YES]; }
-  else if ([action isEqualToString:@"left"] || [action isEqualToString:@"right"]) {
-    const Difficulty order[] = {Difficulty::Easy, Difficulty::Medium, Difficulty::Hard, Difficulty::Expert};
-    int i = 0; for (int k = 0; k < 4; k++) if (order[k] == _difficulty) i = k;
-    [self setDifficulty:order[(i + ([action isEqualToString:@"right"] ? 1 : 3)) % 4]];
-  } else if ([action isEqualToString:@"confirm"]) [self play];
-  else if ([action isEqualToString:@"back"]) [GCApp.shared showMainMenu];
+  const int zones = [_mode isEqualToString:@"practice"] ? 4 : 6;
+  const bool right = [action isEqualToString:@"right"], left = [action isEqualToString:@"left"];
+  if ([action isEqualToString:@"search"]) { [_search.window makeFirstResponder:_search]; return; }
+  if ([action isEqualToString:@"tab"]) { [self setZone:(_zone + 1) % zones]; return; }
+  if ([action isEqualToString:@"backtab"]) { [self setZone:(_zone + zones - 1) % zones]; return; }
+  if ([action isEqualToString:@"up"]) { if (!_filtered.empty()) [self selectIndex:(_selected - 1 + (NSInteger)_filtered.size()) % (NSInteger)_filtered.size() preview:YES]; return; }
+  if ([action isEqualToString:@"down"]) { if (!_filtered.empty()) [self selectIndex:(_selected + 1) % (NSInteger)_filtered.size() preview:YES]; return; }
+  if (left || right) {
+    const int dir = right ? 1 : -1;
+    switch (_zone) {
+      case 1: _sortKey = (_sortKey + dir + 6) % 6; _sortLabel.text = @[@"Sort: Title", @"Sort: Artist", @"Sort: Charter", @"Sort: Difficulty", @"Sort: Length", @"Sort: Recent"][_sortKey]; [self refresh]; break;
+      case 2: {  // instruments the song actually has
+        if (_selected < 0 || _selected >= (NSInteger)_filtered.size()) break;
+        const SongEntry* e = _filtered[_selected];
+        std::vector<Instrument> have;
+        for (Instrument inst : {Instrument::Guitar, Instrument::Bass, Instrument::Rhythm, Instrument::Keys, Instrument::Coop})
+          if (e->available.empty() || std::any_of(e->available.begin(), e->available.end(), [&](const SongAvailability& a) { return a.instrument == inst; })) have.push_back(inst);
+        if (have.empty()) break;
+        int i = 0; for (size_t k = 0; k < have.size(); k++) if (have[k] == _instrument) i = (int)k;
+        Instrument next = have[(i + dir + (int)have.size()) % (int)have.size()];
+        if (next != Instrument::Guitar && next != Instrument::Bass) _moreInstruments = true;
+        [self setInstrument:next];
+        break;
+      }
+      case 4: { const int steps[] = {70, 80, 90, 100}; int i = 3; for (int k = 0; k < 4; k++) if (fabs(settings().quickplaySpeed * 100 - steps[k]) < 0.5) i = k; settings().quickplaySpeed = steps[(i + dir + 4) % 4] / 100.0; saveSettings(); [self renderInfo:NO]; [_stage relayout]; break; }
+      case 5: settings().noFail = !settings().noFail; saveSettings(); [self renderInfo:NO]; [_stage relayout]; break;
+      default: {  // songs / difficulty zones: Left / Right pick the difficulty, skipping ones the song does not chart
+        const Difficulty order[] = {Difficulty::Easy, Difficulty::Medium, Difficulty::Hard, Difficulty::Expert};
+        const SongEntry* e = _selected >= 0 && _selected < (NSInteger)_filtered.size() ? _filtered[_selected] : nullptr;
+        int i = 0; for (int k = 0; k < 4; k++) if (order[k] == _difficulty) i = k;
+        for (int step = 1; step <= 4; step++) {
+          const Difficulty d = order[(i + dir * step + 8) % 4];
+          if (!e || e->available.empty() || e->find(_instrument, d)) { [self setDifficulty:d]; break; }
+        }
+      }
+    }
+    return;
+  }
+  if ([action isEqualToString:@"confirm"]) {
+    if (_zone == 5) { settings().noFail = !settings().noFail; saveSettings(); [self renderInfo:NO]; [_stage relayout]; }
+    else if (_zone == 1) [self cycleSort];
+    else [self play];
+    return;
+  }
+  if ([action isEqualToString:@"back"]) { if (_zone != 0) [self setZone:0]; else [GCApp.shared showMainMenu]; }
 }
 @end

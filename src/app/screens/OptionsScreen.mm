@@ -4,6 +4,7 @@
 #include <functional>
 #include <memory>
 #include "app/Settings.h"
+#include "app/Library.h"
 #include "audio/mixer.h"
 
 using namespace gc;
@@ -58,6 +59,9 @@ struct Row { GCElement* view; std::function<void(int)> nudge; std::function<void
 
 @implementation OptionsScreen {
   NSString* _tab;
+  int _pane;      // 0 = section tabs (left), 1 = option rows (right)
+  int _tabIdx;    // index into kTabs, kTabs.count = "Reset defaults"
+  GCButton* _resetBtn;
   BOOL _overlay, _justCaptured;
   GCStage* _stage;
   NSView* _host;
@@ -81,7 +85,15 @@ struct Row { GCElement* view; std::function<void(int)> nudge; std::function<void
 }
 - (instancetype)init { return [self initWithTab:@"gameplay"]; }
 - (instancetype)initWithTab:(NSString*)tab { return [self initWithTab:tab overlay:NO]; }
-- (instancetype)initWithTab:(NSString*)tab overlay:(BOOL)overlay { if ((self = [super init])) { _tab = tab ?: @"gameplay"; _overlay = overlay; } return self; }
+static NSArray<NSArray<NSString*>*>* kTabs = nil;
+- (instancetype)initWithTab:(NSString*)tab overlay:(BOOL)overlay {
+  if ((self = [super init])) {
+    if (!kTabs) kTabs = @[@[@"gameplay", @"Gameplay"], @[@"calibration", @"Calibration"], @[@"controls", @"Controls"], @[@"audio", @"Audio"], @[@"video", @"Video"], @[@"library", @"Library"]];
+    _tab = tab ?: @"gameplay"; _overlay = overlay;
+    for (NSUInteger i = 0; i < kTabs.count; i++) if ([kTabs[i][0] isEqualToString:_tab]) _tabIdx = (int)i;
+  }
+  return self;
+}
 
 - (void)enter:(GCStage*)stage {
   _stage = stage;
@@ -98,25 +110,27 @@ struct Row { GCElement* view; std::function<void(int)> nudge; std::function<void
   GCButton* reset = GCGhost(@"Reset defaults", ^{ auto folders = settings().songFolders; settings() = Settings(); settings().songFolders = folders; changed(); [weakSelf render]; }, 14);
   reset.width = 132; reset.height = 44; ((GCLabel*)reset.subviews.firstObject).left = 18; ((GCLabel*)reset.subviews.firstObject).top = 12;
   reset.right = 0; reset.top = -6;
+  _resetBtn = reset;
   GCHeader(host, _overlay ? @"GC / Paused / Options" : @"GC / Options", reset, NO);
   GCLabel* h1 = GCMakeLabel(@"Dial it in.", 72, YES, 800, GC_INK); h1.left = 48; h1.top = 112; h1.lineHeight = 88; [host addSubview:h1];
   _tabButtons = [NSMutableArray new];
-  NSArray* tabs = @[@[@"gameplay", @"Gameplay"], @[@"calibration", @"Calibration"], @[@"controls", @"Controls"], @[@"audio", @"Audio"], @[@"video", @"Video"]];
+  NSArray* tabs = kTabs;
   for (NSUInteger i = 0; i < tabs.count; i++) {
-    GCButton* b = [[GCButton alloc] initWithFrame:NSZeroRect]; b.left = 48; b.top = 244 + i * 78; b.width = 248; b.height = 70;
-    GCLabel* l = GCMakeLabel(tabs[i][1], 28, YES, 700, GC_INK); l.left = 20; l.top = 18; [b addSubview:l];
+    GCButton* b = [[GCButton alloc] initWithFrame:NSZeroRect]; b.left = 48; b.top = 232 + i * 72; b.width = 248; b.height = 64;
+    GCLabel* l = GCMakeLabel(tabs[i][1], 28, YES, 700, GC_INK); l.left = 20; l.top = 15; [b addSubview:l];
     NSString* id = tabs[i][0];
-    b.onClick = ^{ OptionsScreen* s = weakSelf; if (s) { [s stopCalibration]; s->_tab = id; s->_focus = 0; [s render]; } };
+    b.onClick = ^{ OptionsScreen* s = weakSelf; if (s) { [s stopCalibration]; s->_tab = id; s->_tabIdx = (int)i; s->_pane = 0; s->_focus = 0; [s render]; } };
     [host addSubview:b];
     [_tabButtons addObject:b];
   }
   GCBox* pageClip = [[GCBox alloc] initWithFrame:NSZeroRect]; pageClip.left = 360; pageClip.right = 48; pageClip.top = 118; pageClip.bottom = 92; pageClip.clips = YES; [host addSubview:pageClip];
   _page = [[GCElement alloc] initWithFrame:NSZeroRect]; _page.left = 0; _page.right = 0; _page.top = 0; _page.height = 2000; [pageClip addSubview:_page];
-  GCFooter(host, @[@[@"↑ ↓", @"Row"], @[@"← →", @"Adjust"], @[@"Enter", @"Select", @"g"], @[@"Esc", _overlay ? @"Back to pause" : @"Back", @"r"]]);
+  GCFooter(host, @[@[@"↑ ↓", @"Move"], @[@"Tab", @"Switch pane"], @[@"← →", @"Adjust"], @[@"Enter", @"Select", @"g"], @[@"Esc", _overlay ? @"Back" : @"Back", @"r"]]);
   [self render];
 }
 - (void)exit {
   [self stopCalibration];
+  Library::instance().onScan = nullptr;
   GCApp.shared.padCapture = nil;
   gOnChange = nil;
   if (_root) { [_root removeFromSuperview]; _root = nil; }
@@ -199,7 +213,7 @@ struct Row { GCElement* view; std::function<void(int)> nudge; std::function<void
   for (NSView* v in [_page.subviews copy]) [v removeFromSuperview];
   _rows.clear();
   for (NSUInteger i = 0; i < _tabButtons.count; i++) {
-    const BOOL sel = [@[@"gameplay", @"calibration", @"controls", @"audio", @"video"][i] isEqualToString:_tab];
+    const BOOL sel = [kTabs[i][0] isEqualToString:_tab];
     _tabButtons[i].fill = sel ? GCColor(GC_YELLOW) : nil;
     ((GCLabel*)_tabButtons[i].subviews.firstObject).color = GCColor(sel ? GC_BG : GC_INK);
   }
@@ -224,6 +238,8 @@ struct Row { GCElement* view; std::function<void(int)> nudge; std::function<void
     [self calibrationCard:y + 36];
   } else if ([_tab isEqualToString:@"controls"]) {
     [self controlsPage];
+  } else if ([_tab isEqualToString:@"library"]) {
+    [self libraryPage];
   } else if ([_tab isEqualToString:@"audio"]) {
     [self intro:@"Turn it up." desc:@"Mix the music against the menu and hit sounds."];
     y = [self slider:y name:@"Master volume" desc:@"" value:s.masterVolume min:0 max:1 step:0.05 accent:NO fmt:^(double v) { return [NSString stringWithFormat:@"%d%%", int(v * 100 + 0.5)]; } onChange:^(double v) { settings().masterVolume = v; }];
@@ -248,9 +264,16 @@ struct Row { GCElement* view; std::function<void(int)> nudge; std::function<void
 }
 
 - (void)paintFocus {
+  const BOOL tabsPane = _pane == 0;
+  for (NSUInteger i = 0; i < _tabButtons.count; i++) {
+    const BOOL f = tabsPane && (int)i == _tabIdx;
+    _tabButtons[i].border = f ? GCColor(GC_INK) : nil; _tabButtons[i].borderWidth = 2;
+  }
+  const BOOL resetFocused = tabsPane && _tabIdx == (int)kTabs.count;
+  _resetBtn.border = GCColor(resetFocused ? GC_INK : GC_BORDER); _resetBtn.borderWidth = resetFocused ? 2 : 1;
   for (size_t i = 0; i < _rows.size(); i++) {
     GCBox* r = (GCBox*)_rows[i].view;
-    if ([r isKindOfClass:GCBox.class]) r.fill = (int)i == _focus ? GCColor(GC_PANEL) : nil;
+    if ([r isKindOfClass:GCBox.class]) r.fill = (!tabsPane && (int)i == _focus) ? GCColor(GC_PANEL) : nil;
   }
   // keep focus visible
   if (_focus < (int)_rows.size()) {
@@ -269,6 +292,8 @@ struct Row { GCElement* view; std::function<void(int)> nudge; std::function<void
   [self intro:@"Your hands. Your setup." desc:@"Select a binding, then press a key or a guitar button. Esc cancels capture."];
   __weak OptionsScreen* weakSelf = self;
   GCBox* tabs = [[GCBox alloc] initWithFrame:NSZeroRect]; tabs.left = 0; tabs.top = 126; tabs.height = 52; tabs.width = 296; [_page addSubview:tabs];
+  auto flipDevice = [weakSelf](int) { OptionsScreen* s = weakSelf; if (s) { s->_controlsGamepad = !s->_controlsGamepad; [s render]; } };
+  _rows.push_back({tabs, flipDevice, [flipDevice]() { flipDevice(1); }});
   NSArray* names = @[@"Keyboard", @"Guitar controller"];
   CGFloat x = 0;
   for (int i = 0; i < 2; i++) {
@@ -452,18 +477,78 @@ struct Row { GCElement* view; std::function<void(int)> nudge; std::function<void
 - (void)menuAction:(NSString*)action {
   if (_captureTarget) return;
   if (_justCaptured) { _justCaptured = NO; return; }
-  if ([action isEqualToString:@"up"] || [action isEqualToString:@"down"]) {
-    if (_calRunning) { _calHits.push_back(GCHostSeconds()); return; }
+  if (_calRunning && ([action isEqualToString:@"up"] || [action isEqualToString:@"down"])) { _calHits.push_back(GCHostSeconds()); return; }
+  const BOOL up = [action isEqualToString:@"up"], down = [action isEqualToString:@"down"], left = [action isEqualToString:@"left"], right = [action isEqualToString:@"right"];
+  const BOOL confirm = [action isEqualToString:@"confirm"], back = [action isEqualToString:@"back"], tab = [action isEqualToString:@"tab"] || [action isEqualToString:@"backtab"];
+  if (tab) { _pane = (_pane == 0 && !_rows.empty()) ? 1 : 0; [self paintFocus]; [_stage relayout]; return; }
+  if (_pane == 0) {  // section tabs (+ Reset defaults as the last stop)
+    const int n = (int)kTabs.count + 1;
+    if (up || down) {
+      _tabIdx = (_tabIdx + (down ? 1 : n - 1)) % n;
+      if (_tabIdx < (int)kTabs.count) { [self stopCalibration]; _tab = kTabs[_tabIdx][0]; _focus = 0; [self render]; }
+      else { [self paintFocus]; [_stage relayout]; }
+    } else if (right || confirm) {
+      if (_tabIdx == (int)kTabs.count) { if (_resetBtn.onClick) _resetBtn.onClick(); }
+      else if (!_rows.empty()) { _pane = 1; [self paintFocus]; [_stage relayout]; }
+    } else if (back) {
+      if (_overlay) { if (self.onClose) self.onClose(); }
+      else [GCApp.shared showMainMenu];
+    }
+    return;
+  }
+  if (up || down) {
     if (_rows.empty()) return;
-    _focus = (_focus + ([action isEqualToString:@"down"] ? 1 : (int)_rows.size() - 1)) % (int)_rows.size();
+    _focus = (_focus + (down ? 1 : (int)_rows.size() - 1)) % (int)_rows.size();
     [self paintFocus]; [_stage relayout];
-  } else if ([action isEqualToString:@"left"] || [action isEqualToString:@"right"]) {
-    if (_focus < (int)_rows.size() && _rows[_focus].nudge) _rows[_focus].nudge([action isEqualToString:@"right"] ? 1 : -1);
-  } else if ([action isEqualToString:@"confirm"]) {
+  } else if (left || right) {
+    if (_focus < (int)_rows.size() && _rows[_focus].nudge) _rows[_focus].nudge(right ? 1 : -1);
+    else if (left) { _pane = 0; [self paintFocus]; [_stage relayout]; }  // a row without a left/right action: Left returns to the sections
+  } else if (confirm) {
     if (_focus < (int)_rows.size() && _rows[_focus].activate) _rows[_focus].activate();
-  } else if ([action isEqualToString:@"back"]) {
-    if (_overlay) { if (self.onClose) self.onClose(); }
-    else [GCApp.shared showMainMenu];
+  } else if (back) {
+    _pane = 0; [self paintFocus]; [_stage relayout];
+  }
+}
+
+// ------------------------------------------------------------ library page: linked song folders
+- (void)libraryPage {
+  [self intro:@"Your songs, your folders." desc:@"Every folder here is scanned for Clone Hero songs. Unlink one to drop its songs from the library; nothing on disk is touched."];
+  __weak OptionsScreen* weakSelf = self;
+  CGFloat y = 130;
+  const auto folders = settings().songFolders;
+  if (folders.empty()) {
+    GCLabel* none = GCMakeLabel(@"No folders linked yet. The built-in demo is always available.", 17, NO, 400, GC_MUTED); none.left = 0; none.top = y + 20; [_page addSubview:none];
+    y += 70;
+  }
+  for (const auto& f : folders) {
+    const std::string folder = f;
+    const size_t slash = folder.find_last_of('/');
+    GCBox* r = [self rowAt:y name:@(slash == std::string::npos ? folder.c_str() : folder.c_str() + slash + 1) desc:@(folder.c_str())];
+    int count = 0;
+    for (const auto& e : Library::instance().entries()) if (!e.builtin && e.path.rfind(folder, 0) == 0) count++;
+    GCLabel* n = GCMakeLabel([NSString stringWithFormat:@"%d song%s", count, count == 1 ? "" : "s"], 15, NO, 400, GC_MUTED); n.right = 150; n.top = 36; [r addSubview:n];
+    GCButton* rm = GCGhost(@"Unlink", ^{ Library::instance().removeFolder(folder); [weakSelf render]; }, 14);
+    rm.right = 0; rm.top = 24; rm.width = 110; rm.height = 44; ((GCLabel*)rm.subviews.firstObject).left = 0; ((GCLabel*)rm.subviews.firstObject).right = 0; ((GCLabel*)rm.subviews.firstObject).top = 12; ((GCLabel*)rm.subviews.firstObject).align = NSTextAlignmentCenter;
+    [r addSubview:rm];
+    _rows.push_back({r, nullptr, [folder, weakSelf]() { Library::instance().removeFolder(folder); [weakSelf render]; }});
+    y += 92;
+  }
+  GCBox* addRow = [self rowAt:y name:@"Add songs folder" desc:@"Pick a Clone Hero Songs folder, or any folder containing song folders or .sng files. Subfolders are scanned."];
+  GCButton* add = GCGhost(@"Add folder ↗", ^{ [weakSelf pickFolder]; }, 14);
+  add.right = 0; add.top = 24; add.width = 140; add.height = 44; ((GCLabel*)add.subviews.firstObject).left = 0; ((GCLabel*)add.subviews.firstObject).right = 0; ((GCLabel*)add.subviews.firstObject).top = 12; ((GCLabel*)add.subviews.firstObject).align = NSTextAlignmentCenter;
+  [addRow addSubview:add];
+  _rows.push_back({addRow, nullptr, [weakSelf]() { [weakSelf pickFolder]; }});
+  const auto sp = Library::instance().scan();
+  if (sp.scanning) { GCLabel* st = GCMakeLabel(sp.total ? [NSString stringWithFormat:@"Scanning… %d / %d", sp.done, sp.total] : @"Scanning folders…", 15, NO, 400, GC_YELLOW); st.left = 0; st.top = y + 110; [_page addSubview:st]; }
+}
+- (void)pickFolder {
+  NSOpenPanel* p = [NSOpenPanel openPanel];
+  p.canChooseDirectories = YES; p.canChooseFiles = NO; p.allowsMultipleSelection = NO; p.title = @"Choose your songs folder";
+  if ([p runModal] == NSModalResponseOK && p.URL) {
+    Library::instance().addFolder(p.URL.path.UTF8String);
+    __weak OptionsScreen* weakSelf = self;
+    Library::instance().onScan = ^(ScanProgress) { OptionsScreen* s = weakSelf; if (s && [s->_tab isEqualToString:@"library"]) [s render]; };
+    [self render];
   }
 }
 @end

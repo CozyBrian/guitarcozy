@@ -31,6 +31,7 @@ add_executable(gctests
   tests/test_bot.cpp
   tests/test_sng.cpp
   tests/test_scan.cpp
+  tests/test_stars.cpp
 )
 target_link_libraries(gctests PRIVATE gccore)
 target_compile_definitions(gctests PRIVATE GC_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
@@ -83,6 +84,9 @@ if(APPLE)
   add_dependencies(GuitarCozy shaders)
   target_sources(GuitarCozy PRIVATE ${METALLIB})
   set_source_files_properties(${METALLIB} PROPERTIES MACOSX_PACKAGE_LOCATION Resources GENERATED TRUE)
+  set(APP_ICON ${CMAKE_SOURCE_DIR}/assets/icon/GuitarCozy.icns)
+  target_sources(GuitarCozy PRIVATE ${APP_ICON})
+  set_source_files_properties(${APP_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
   target_include_directories(GuitarCozy PRIVATE src src/platform src/app)
   target_link_libraries(GuitarCozy PRIVATE gccore gccore_midi PkgConfig::AUDIOLIBS sqlite3
     "-framework Cocoa" "-framework Metal" "-framework MetalKit" "-framework QuartzCore"
@@ -90,6 +94,7 @@ if(APPLE)
   target_compile_options(GuitarCozy PRIVATE -fobjc-arc)
   set_target_properties(GuitarCozy PROPERTIES
     MACOSX_BUNDLE_BUNDLE_NAME "GuitarCozy"
+    MACOSX_BUNDLE_ICON_FILE "GuitarCozy.icns"
     MACOSX_BUNDLE_GUI_IDENTIFIER "com.guitarcozy.native"
     MACOSX_BUNDLE_BUNDLE_VERSION "0.1.0"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.0")
