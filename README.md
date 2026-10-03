@@ -1,6 +1,6 @@
-# GuitarCozy Native
+# GuitarCozy
 
-Native macOS port of GuitarCozy: C++20 core, Objective-C++ platform layer, Metal renderer, AppKit UI. The web build in `../guitarcozy` is the reference implementation; this port reproduces its gameplay rules and the GuitarCozy Paper design screen for screen.
+Native macOS port of GuitarCozy: C++20 core, Objective-C++ platform layer, Metal renderer, AppKit UI. The browser/Tauri build in [GuitarCozyWeb](https://github.com/CozyBrian/GuitarCozyWeb) is the reference implementation; this port reproduces its gameplay rules and the GuitarCozy Paper design screen for screen.
 
 ## Build
 
@@ -41,7 +41,7 @@ Set `GC_CLOCKLOG=1` to log frame pacing during normal play: song-time and wall-t
 Run the bundle executable directly so it inherits the HUD environment variable:
 
 ```sh
-cd /Users/brian/projects/GuitarCozyNative
+# From the repository root:
 MTL_HUD_ENABLED=1 ./build/GuitarCozy.app/Contents/MacOS/GuitarCozy
 ```
 
